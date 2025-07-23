@@ -33,7 +33,6 @@ install_wp() {
     echo "Removing existing WordPress core directory at $WP_CORE_DIR"
     rm -rf "$WP_CORE_DIR"
   fi
-  mkdir -p "$WP_CORE_DIR"
   svn export --quiet https://core.svn.wordpress.org/tags/$WP_VERSION/ "$WP_CORE_DIR"
 }
 
