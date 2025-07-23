@@ -2,10 +2,24 @@
 if (file_exists(__DIR__ . '/../vendor/autoload.php')) {
     require_once __DIR__ . '/../vendor/autoload.php';
 }
-$_tests_dir = getenv('WP_TESTS_DIR');
 
+$_tests_dir = getenv('WP_TESTS_DIR');
 if (!$_tests_dir) {
     $_tests_dir = '/tmp/wordpress-tests-lib';
+}
+
+// Automatically install the WP test suite if missing
+if (!file_exists($_tests_dir . '/includes/functions.php')) {
+    // Try to run the install script
+    $script = dirname(__DIR__) . '/bin/install-wp-tests.sh';
+    if (file_exists($script)) {
+        $cmd = sprintf('bash %s wordpress_test root root 127.0.0.1 6.6', escapeshellarg($script));
+        echo "\nWP test suite not found. Running: $cmd\n";
+        system($cmd);
+    } else {
+        fwrite(STDERR, "\nERROR: WP test suite missing and install script not found at $script\n");
+        exit(1);
+    }
 }
 
 // Load WordPress test functions
