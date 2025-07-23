@@ -1,50 +1,47 @@
-name: Run PHPUnit tests
+name: Run WordPress Plugin Tests
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [main]
   pull_request:
-    branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
-  test:
+  wp-tests:
     runs-on: ubuntu-latest
-
     services:
       mysql:
         image: mysql:5.7
         env:
           MYSQL_ROOT_PASSWORD: root
-          MYSQL_DATABASE: wordpress_test
         ports:
           - 3306:3306
-        options: --health-cmd="mysqladmin ping --silent" --health-interval=10s --health-timeout=5s --health-retries=3
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
 
     steps:
-      - name: Checkout Plugin Code
-        uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.1'
+          php-version: '8.2'
           extensions: mysqli
+          tools: wp
+          coverage: none
 
-      - name: Install WP-CLI
-        run: |
-          curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
-          php wp-cli.phar --info
-          chmod +x wp-cli.phar
-          sudo mv wp-cli.phar /usr/local/bin/wp
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist
 
-      - name: Install Subversion
+      - name: Install SVN
         run: sudo apt-get update && sudo apt-get install -y subversion
 
-      - name: Install Composer Dependencies
-        run: composer install || true
+      - name: Set up WordPress test suite
+        run: bash bin/install-wp-tests.sh wordpress_test root root 127.0.0.1 6.6
 
-      - name: Install WordPress test suite
-        run: bash bin/install-wp-tests.sh wordpress_test root root 127.0.0.1 6.5.3
-
-      - name: Run PHPUnit
+      - name: Run PHPUnit tests
         run: vendor/bin/phpunit
