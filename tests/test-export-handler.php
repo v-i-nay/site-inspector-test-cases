@@ -12,3 +12,4 @@ class WPSI_Export_Handler_Tests extends WP_UnitTestCase {
         $this->assertArrayHasKey('wp_ajax_wpsi_export_excel', $wp_filter);
     }
 } 
+// something
