@@ -8,10 +8,7 @@ class WPSI_Core_Tests extends WP_UnitTestCase {
 
     public function test_debug_toggle_enabled() {
         update_option('wpsi_enable_debug_log', '1');
-
-        // Re-require plugin manually to re-trigger the debug logic
-        require dirname(__DIR__) . '/wp-site-inspector.php';
-
+        // No need to require the plugin again!
         $this->assertTrue( defined('WP_DEBUG') && WP_DEBUG );
         $this->assertTrue( defined('WP_DEBUG_LOG') && WP_DEBUG_LOG );
         $this->assertTrue( defined('WP_DEBUG_DISPLAY') && WP_DEBUG_DISPLAY === false );
