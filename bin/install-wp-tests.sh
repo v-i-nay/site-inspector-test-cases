@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 
+# Exit on error
 set -e
 
-# Set variables from input args or default
-DB_NAME=${1:-wordpress_test}
-DB_USER=${2:-root}
-DB_PASS=${3:-root}
-DB_HOST=${4:-127.0.0.1}
-WP_VERSION=${5:-latest}
+DB_NAME=$1
+DB_USER=$2
+DB_PASS=$3
+DB_HOST=$4
+WP_VERSION=$5
 
-# Paths
+# Fallbacks
 WP_TESTS_DIR=${WP_TESTS_DIR-/tmp/wordpress-tests-lib}
-WP_CORE_DIR=${WP_CORE_DIR-/tmp/wordpress}
+WP_CORE_DIR=${WP_CORE_DIR-/tmp/wordpress/}
 
 download() {
   if [ "$(which curl)" ]; then
@@ -22,40 +22,34 @@ download() {
 }
 
 install_wp() {
-  if [ -d "$WP_CORE_DIR" ]; then
+  if [ -d $WP_CORE_DIR ]; then
     return
   fi
 
-  mkdir -p "$WP_CORE_DIR"
-  cd "$WP_CORE_DIR"
-
-  if [ "$WP_VERSION" == "latest" ]; then
-    ARCHIVE_NAME="latest"
-  else
-    ARCHIVE_NAME="wordpress-$WP_VERSION"
-  fi
-
-  download https://wordpress.org/${ARCHIVE_NAME}.tar.gz /tmp/wordpress.tar.gz
-  tar --strip-components=1 -zxmf /tmp/wordpress.tar.gz
+  mkdir -p $WP_CORE_DIR
+  download https://wordpress.org/wordpress-${WP_VERSION}.tar.gz /tmp/wordpress.tar.gz
+  tar --strip-components=1 -zxmf /tmp/wordpress.tar.gz -C $WP_CORE_DIR
 }
 
 install_test_suite() {
-  mkdir -p "$WP_TESTS_DIR"
-  cd "$WP_TESTS_DIR"
+  if [ -d $WP_TESTS_DIR ]; then
+    return
+  fi
 
-  download https://develop.svn.wordpress.org/trunk/tests/phpunit/includes/functions.php includes/functions.php
-  download https://develop.svn.wordpress.org/trunk/tests/phpunit/includes/bootstrap.php includes/bootstrap.php
-  download https://develop.svn.wordpress.org/trunk/tests/phpunit/wp-tests-config-sample.php wp-tests-config.php
+  mkdir -p $WP_TESTS_DIR
+  svn co --quiet https://develop.svn.wordpress.org/tags/${WP_VERSION}/tests/phpunit/includes/ $WP_TESTS_DIR/includes
+  svn co --quiet https://develop.svn.wordpress.org/tags/${WP_VERSION}/tests/phpunit/data/ $WP_TESTS_DIR/data
+  download https://develop.svn.wordpress.org/tags/${WP_VERSION}/wp-tests-config-sample.php "$WP_TESTS_DIR"/wp-tests-config.php
 
-  sed -i "s/youremptytestdbnamehere/$DB_NAME/" wp-tests-config.php
-  sed -i "s/yourusernamehere/$DB_USER/" wp-tests-config.php
-  sed -i "s/yourpasswordhere/$DB_PASS/" wp-tests-config.php
-  sed -i "s|localhost|$DB_HOST|" wp-tests-config.php
+  sed -i "s:dirname( __FILE__ ) . '/src/':'$WP_CORE_DIR/':" "$WP_TESTS_DIR"/wp-tests-config.php
+  sed -i "s/yourdbnamehere/$DB_NAME/" "$WP_TESTS_DIR"/wp-tests-config.php
+  sed -i "s/yourusernamehere/$DB_USER/" "$WP_TESTS_DIR"/wp-tests-config.php
+  sed -i "s/yourpasswordhere/$DB_PASS/" "$WP_TESTS_DIR"/wp-tests-config.php
+  sed -i "s|localhost|${DB_HOST}|" "$WP_TESTS_DIR"/wp-tests-config.php
 }
 
 install_db() {
-  # Create DB
-  mysql -u "$DB_USER" -p"$DB_PASS" -h "$DB_HOST" -e "DROP DATABASE IF EXISTS $DB_NAME; CREATE DATABASE $DB_NAME;"
+  mysqladmin create $DB_NAME --user="$DB_USER" --password="$DB_PASS" --host="$DB_HOST" || true
 }
 
 install_wp
