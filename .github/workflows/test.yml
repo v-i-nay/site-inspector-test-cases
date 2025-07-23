@@ -1,13 +1,12 @@
-name: Run PHPUnit Tests
+name: WordPress Plugin PHPUnit Tests
 
 on:
   push:
-    branches: [ main ]
   pull_request:
-    branches: [ main ]
 
 jobs:
-  test:
+  phpunit:
+    name: Run PHPUnit Tests
     runs-on: ubuntu-latest
 
     services:
@@ -18,32 +17,31 @@ jobs:
           MYSQL_DATABASE: wordpress_test
         ports:
           - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping --silent"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=3
+        options: --health-cmd="mysqladmin ping --silent" --health-interval=10s --health-timeout=5s --health-retries=5
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Checkout Plugin Code
+        uses: actions/checkout@v3
 
-    - name: Set up PHP
-      uses: shivammathur/setup-php@v2
-      with:
-        php-version: '7.4'
-        extensions: mbstring, mysqli
-        coverage: none
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          extensions: mysqli
 
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y subversion
+      - name: Install Subversion
+        run: sudo apt-get update && sudo apt-get install -y subversion
 
-    - name: Install WordPress test environment
-      run: |
-        bash bin/install-wp-tests.sh wordpress_test root root 127.0.0.1 latest
+      - name: Install Composer Dependencies
+        run: composer install || true
 
-    - name: Run PHPUnit tests
-      run: |
-        ./vendor/bin/phpunit
+      - name: Setup WordPress Test Suite
+        run: bash bin/install-wp-tests.sh wordpress_test root root 127.0.0.1 latest
+
+      - name: Run PHPUnit
+        run: |
+          if [ -f ./vendor/bin/phpunit ]; then
+            ./vendor/bin/phpunit
+          else
+            phpunit
+          fi
