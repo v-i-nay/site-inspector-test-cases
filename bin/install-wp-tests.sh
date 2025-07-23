@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 
-set -e
+set -ex
+
+if ! command -v svn >/dev/null; then
+  echo "SVN is required but not installed!" >&2
+  exit 1
+fi
+if ! command -v curl >/dev/null && ! command -v wget >/dev/null; then
+  echo "Either curl or wget is required but neither is installed!" >&2
+  exit 1
+fi
 
 DB_NAME=$1
 DB_USER=$2
