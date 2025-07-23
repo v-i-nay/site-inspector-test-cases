@@ -7,9 +7,9 @@ class WPSI_Admin_UI_Tests extends WP_UnitTestCase {
     }
 
     public function test_register_menu_adds_menu() {
+        global $menu;
         $ui = new WP_Site_Inspector_Admin_UI();
         $ui->register_menu();
-        global $menu;
         $found = false;
         foreach ($menu as $item) {
             if (isset($item[2]) && $item[2] === 'wp-site-inspector') {
@@ -18,5 +18,11 @@ class WPSI_Admin_UI_Tests extends WP_UnitTestCase {
             }
         }
         $this->assertTrue($found, 'Site Inspector menu not registered');
+    }
+
+    public function test_enqueue_assets_only_on_plugin_page() {
+        $ui = new WP_Site_Inspector_Admin_UI();
+        // Should not enqueue on unrelated pages
+        $this->assertNull($ui->enqueue_assets('some_other_page'));
     }
 } 
