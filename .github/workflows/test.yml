@@ -45,4 +45,4 @@ jobs:
 
       - name: Run PHPUnit tests
         id: phpunit
-        run: vendor/bin/phpunit --testdox --colors=always
+        run: vendor/bin/phpunit --verbose --testdox --colors=always
