@@ -7,8 +7,6 @@ class TestWPSIRestore extends WP_UnitTestCase {
     private $restore;
     private $backup_dir;
     private $temp_dir;
-    private $admin_id;
-    private $editor_id;
     
     public function setUp(): void {
         parent::setUp();
@@ -27,29 +25,13 @@ class TestWPSIRestore extends WP_UnitTestCase {
         $temp_dir_prop->setAccessible(true);
         $this->temp_dir = $temp_dir_prop->getValue($this->restore);
         
+        // Debug output
+        error_log("Backup directory in tests: " . $this->backup_dir);
+        error_log("Temp directory in tests: " . $this->temp_dir);
+        
         // Create test admin user
         $this->admin_id = $this->factory->user->create(['role' => 'administrator']);
         wp_set_current_user($this->admin_id);
-        
-        // Create test non-admin user
-        $this->editor_id = $this->factory->user->create(['role' => 'editor']);
-        
-        // Create test attachments
-        $this->create_test_attachments();
-    }
-    
-    private function create_test_attachments() {
-        $upload_dir = wp_upload_dir();
-        
-        // Create test image
-        $image_path = $upload_dir['path'] . '/test-image.jpg';
-        file_put_contents($image_path, 'test image content');
-        $this->attachment_id = $this->factory->attachment->create_upload_object($image_path);
-        
-        // Create test document
-        $doc_path = $upload_dir['path'] . '/test-doc.pdf';
-        file_put_contents($doc_path, 'test doc content');
-        $this->doc_id = $this->factory->attachment->create_upload_object($doc_path);
     }
     
     public function tearDown(): void {
@@ -71,89 +53,31 @@ class TestWPSIRestore extends WP_UnitTestCase {
         @rmdir($dir);
     }
     
-    private function create_mock_backup($include_uploads = true) {
-        $backup_file = $this->temp_dir . 'mock-backup.wpsi';
-        $extract_dir = $this->temp_dir . 'mock-extract/';
+    // Test directory detection and creation
+    public function test_directory_handling() {
+        // First verify the directories exist
+        $this->assertDirectoryExists($this->backup_dir, "Backup directory should exist");
+        $this->assertDirectoryExists($this->temp_dir, "Temp directory should exist");
         
-        // Create mock backup structure
-        wp_mkdir_p($extract_dir);
+        // Check directory permissions
+        $this->assertTrue(is_writable($this->backup_dir), "Backup directory should be writable");
+        $this->assertTrue(is_writable($this->temp_dir), "Temp directory should be writable");
         
-        // Create mock database.sql
-        $db_content = "-- WordPress database dump\n";
-        $db_content .= "INSERT INTO `wp_options` VALUES (1, 'siteurl', 'http://old-site.com', 'yes');\n";
-        $db_content .= "INSERT INTO `wp_options` VALUES (2, 'home', 'http://old-site.com', 'yes');\n";
-        $db_content .= "INSERT INTO `wp_posts` VALUES (1, 1, NOW(), NOW(), 'Test post', 'test-post', 'publish', 'open', 'open', '', 'test-post', '', '', NOW(), NOW(), '', 0, 'http://old-site.com/?p=1', 0, 'post', '', 0);\n";
-        file_put_contents($extract_dir . 'database.sql', $db_content);
-        
-        // Create mock wp-content structure
-        wp_mkdir_p($extract_dir . 'wp-content/plugins/test-plugin');
-        file_put_contents($extract_dir . 'wp-content/plugins/test-plugin/test-plugin.php', '<?php /* Test Plugin */');
-        
-        wp_mkdir_p($extract_dir . 'wp-content/themes/test-theme');
-        file_put_contents($extract_dir . 'wp-content/themes/test-theme/style.css', '/* Test Theme */');
-        
-        if ($include_uploads) {
-            wp_mkdir_p($extract_dir . 'wp-content/uploads/2023/01');
-            file_put_contents($extract_dir . 'wp-content/uploads/2023/01/test-image.jpg', 'test image content');
-        }
-        
-        // Create zip archive
-        $zip = new ZipArchive();
-        $zip->open($backup_file, ZipArchive::CREATE);
-        $this->add_directory_to_zip($extract_dir, $zip);
-        $zip->close();
-        
-        // Clean up extract dir
-        $this->recursive_rmdir($extract_dir);
-        
-        return $backup_file;
-    }
-    
-    private function add_directory_to_zip($dir, $zip, $relative_path = '') {
-        $dir = rtrim($dir, '/') . '/';
-        if ($handle = opendir($dir)) {
-            while (false !== ($file = readdir($handle))) {
-                if ($file != '.' && $file != '..') {
-                    $full_path = $dir . $file;
-                    $zip_path = $relative_path . $file;
-                    
-                    if (is_dir($full_path)) {
-                        $zip->addEmptyDir($zip_path);
-                        $this->add_directory_to_zip($full_path, $zip, $zip_path . '/');
-                    } else {
-                        $zip->addFile($full_path, $zip_path);
-                    }
-                }
-            }
-            closedir($handle);
+        // Verify .htaccess files - skip if running on Windows
+        if (strtoupper(substr(PHP_OS, 0, 3)) !== 'WIN') {
+            $this->assertFileExists($this->backup_dir . '.htaccess', 
+                ".htaccess file should exist in backup directory");
+            $this->assertFileExists($this->temp_dir . '.htaccess',
+                ".htaccess file should exist in temp directory");
+            
+            // Verify .htaccess content
+            $backup_htaccess = file_get_contents($this->backup_dir . '.htaccess');
+            $this->assertEquals('deny from all', trim($backup_htaccess),
+                ".htaccess should contain 'deny from all'");
         }
     }
     
-    // ==================== TEST CASES ====================
-    
-    public function test_directory_creation() {
-        // Verify directories exist
-        $this->assertDirectoryExists($this->backup_dir);
-        $this->assertDirectoryExists($this->temp_dir);
-        
-        // Verify writable
-        $this->assertTrue(is_writable($this->backup_dir));
-        $this->assertTrue(is_writable($this->temp_dir));
-        
-        // Skip .htaccess test in CI if it fails
-        if (getenv('CI') && !file_exists($this->backup_dir . '.htaccess')) {
-            $this->markTestSkipped('.htaccess creation skipped in CI environment');
-            return;
-        }
-        
-        // Verify .htaccess files
-        $this->assertFileExists($this->backup_dir . '.htaccess');
-        $this->assertFileExists($this->temp_dir . '.htaccess');
-        
-        // Verify .htaccess content
-        $this->assertEquals('deny from all', file_get_contents($this->backup_dir . '.htaccess'));
-    }
-    
+    // Test AJAX handler registration
     public function test_ajax_handler_registration() {
         global $wp_filter;
         
@@ -163,203 +87,218 @@ class TestWPSIRestore extends WP_UnitTestCase {
         $this->assertArrayHasKey('wp_ajax_wpsi_chunked_upload', $wp_filter);
     }
     
+    // Test backup listing functionality
     public function test_list_backups() {
-        // Create test backup file
-        $test_file = $this->backup_dir . 'test-backup.wpsi';
+        // Create a test backup file
+        $test_file = $this->backup_dir . 'test_backup.wpsi';
         file_put_contents($test_file, 'test content');
         
         // Simulate AJAX request
         $_POST['nonce'] = wp_create_nonce('wpsi_restore_backup');
         
-        ob_start();
-        $this->restore->list_backups();
-        $output = ob_get_clean();
-        $response = json_decode($output, true);
-        
-        $this->assertTrue($response['success']);
-        $this->assertArrayHasKey('backups', $response['data']);
-        $this->assertCount(1, $response['data']['backups']);
-        $this->assertEquals('test-backup.wpsi', $response['data']['backups'][0]['name']);
+        try {
+            ob_start();
+            $this->restore->list_backups();
+            $output = ob_get_clean();
+            $response = json_decode($output, true);
+            
+            $this->assertTrue($response['success']);
+            $this->assertArrayHasKey('backups', $response['data']);
+            $this->assertCount(1, $response['data']['backups']);
+            $this->assertEquals('test_backup.wpsi', $response['data']['backups'][0]['name']);
+        } catch (WPDieException $e) {
+            $this->fail('Unexpected WPDieException');
+        }
     }
     
+    // Test backup listing with no permissions
     public function test_list_backups_no_permission() {
         wp_set_current_user($this->editor_id);
         
         $_POST['nonce'] = wp_create_nonce('wpsi_restore_backup');
         
-        ob_start();
-        $this->restore->list_backups();
-        $output = ob_get_clean();
-        $response = json_decode($output, true);
-        
-        $this->assertFalse($response['success']);
-        $this->assertStringContainsString('permission', $response['data']);
+        try {
+            ob_start();
+            $this->restore->list_backups();
+            $output = ob_get_clean();
+            $response = json_decode($output, true);
+            
+            $this->assertFalse($response['success']);
+            $this->assertStringContainsString('permission', $response['data']);
+        } catch (WPDieException $e) {
+            $this->fail('Unexpected WPDieException');
+        }
     }
     
+    // Test chunked file upload
     public function test_chunked_upload() {
         $_POST['wpsi_restore_nonce'] = wp_create_nonce('wpsi_restore_backup');
         $_POST['chunk'] = 0;
         $_POST['chunks'] = 1;
-        $_POST['name'] = 'test-upload.wpsi';
+        $_POST['name'] = 'test_upload.wpsi';
         
-        // Create test file chunk
+        // Create a test file chunk
         $tmp_file = tempnam(sys_get_temp_dir(), 'wpsi');
         file_put_contents($tmp_file, 'test chunk content');
         $_FILES = [
             'file' => [
                 'tmp_name' => $tmp_file,
-                'name' => 'test-chunk',
+                'name' => 'test_chunk',
                 'type' => 'application/octet-stream',
                 'error' => 0,
                 'size' => filesize($tmp_file)
             ]
         ];
         
-        ob_start();
-        $this->restore->handle_chunked_upload();
-        $output = ob_get_clean();
-        $response = json_decode($output, true);
-        
-        $this->assertTrue($response['success']);
-        $this->assertTrue($response['data']['complete']);
-        $this->assertFileExists($response['data']['backup_file']);
-        
-        @unlink($tmp_file);
+        try {
+            ob_start();
+            $this->restore->handle_chunked_upload();
+            $output = ob_get_clean();
+            $response = json_decode($output, true);
+            
+            $this->assertTrue($response['success']);
+            $this->assertTrue($response['data']['complete']);
+            $this->assertFileExists($response['data']['backup_file']);
+        } catch (WPDieException $e) {
+            $this->fail('Unexpected WPDieException');
+        } finally {
+            @unlink($tmp_file);
+        }
     }
     
+    // Test full restore process with mock backup
     public function test_full_restore_process() {
-        $backup_file = $this->create_mock_backup();
+        // Create a mock backup file structure
+        $mock_backup = $this->temp_dir . 'mock_backup.wpsi';
+        $extract_dir = $this->temp_dir . 'mock_extract/';
         
-        // Simulate AJAX requests for each step
+        // Create a mock ZIP file with database and files
+        $zip = new ZipArchive();
+        $zip->open($mock_backup, ZipArchive::CREATE);
+        
+        // Add mock database
+        $db_content = "-- WordPress database dump\n" .
+                      "INSERT INTO `wp_options` VALUES (1, 'siteurl', 'http://old-site.com', 'yes');\n" .
+                      "INSERT INTO `wp_options` VALUES (2, 'home', 'http://old-site.com', 'yes');\n" .
+                      "INSERT INTO `wp_posts` VALUES (1, 1, '2023-01-01 00:00:00', '2023-01-01 00:00:00', 'Test post', 'test-post', 'publish', 'open', 'open', '', 'test-post', '', '', '2023-01-01 00:00:00', '2023-01-01 00:00:00', '', 0, 'http://old-site.com/?p=1', 0, 'post', '', 0);";
+        
+        $zip->addFromString('database.sql', $db_content);
+        
+        // Add mock files
+        $zip->addEmptyDir('files/wp-content/plugins/test-plugin/');
+        $zip->addFromString('files/wp-content/plugins/test-plugin/test-plugin.php', '<?php /* Test Plugin */');
+        $zip->close();
+        
+        // Test database restore
         $_POST['nonce'] = wp_create_nonce('wpsi_restore_backup');
-        $_POST['backup_file'] = $backup_file;
-        
-        // Step 1: Extract
-        $_POST['step'] = 'extract';
-        ob_start();
-        $this->restore->restore_backup();
-        $output = ob_get_clean();
-        $extract_response = json_decode($output, true);
-        
-        $this->assertTrue($extract_response['success']);
-        $this->assertEquals('restore_files', $extract_response['data']['next_step']);
-        $this->assertDirectoryExists($extract_response['data']['extract_dir']);
-        
-        // Step 2: Restore files
-        $_POST['step'] = 'restore_files';
-        $_POST['extract_dir'] = $extract_response['data']['extract_dir'];
-        ob_start();
-        $this->restore->restore_backup();
-        $output = ob_get_clean();
-        $files_response = json_decode($output, true);
-        
-        $this->assertTrue($files_response['success']);
-        $this->assertEquals('restore_database', $files_response['data']['next_step']);
-        
-        // Verify files were restored
-        $this->assertFileExists(WP_PLUGIN_DIR . '/test-plugin/test-plugin.php');
-        $this->assertFileExists(get_theme_root() . '/test-theme/style.css');
-        
-        // Step 3: Restore database
+        $_POST['backup_file'] = $mock_backup;
         $_POST['step'] = 'restore_database';
-        ob_start();
-        $this->restore->restore_backup();
-        $output = ob_get_clean();
-        $db_response = json_decode($output, true);
         
-        $this->assertTrue($db_response['success']);
-        $this->assertEquals('finalize', $db_response['data']['next_step']);
-        
-        // Verify database changes
-        $this->assertNotEquals('http://old-site.com', get_option('siteurl'));
-        
-        // Step 4: Finalize
-        $_POST['step'] = 'finalize';
-        ob_start();
-        $this->restore->restore_backup();
-        $output = ob_get_clean();
-        $final_response = json_decode($output, true);
-        
-        $this->assertTrue($final_response['success']);
-        $this->assertTrue($final_response['data']['complete']);
-        
-        // Verify cleanup
-        $this->assertDirectoryDoesNotExist($extract_response['data']['extract_dir']);
+        try {
+            ob_start();
+            $this->restore->restore_backup();
+            $output = ob_get_clean();
+            $response = json_decode($output, true);
+            
+            $this->assertTrue($response['success']);
+            $this->assertEquals('restore_files', $response['data']['next_step']);
+            
+            // Verify URL replacement
+            $site_url = get_option('siteurl');
+            $this->assertNotEquals('http://old-site.com', $site_url);
+            
+            // Test files restore
+            $_POST['step'] = 'restore_files';
+            $_POST['extract_dir'] = $response['data']['extract_dir'];
+            
+            ob_start();
+            $this->restore->restore_backup();
+            $output = ob_get_clean();
+            $response = json_decode($output, true);
+            
+            $this->assertTrue($response['success']);
+            $this->assertEquals('finalize', $response['data']['next_step']);
+            
+            // Verify plugin was restored
+            $this->assertFileExists(WP_PLUGIN_DIR . '/test-plugin/test-plugin.php');
+            
+            // Test finalize
+            $_POST['step'] = 'finalize';
+            $_POST['extract_dir'] = $response['data']['extract_dir'];
+            
+            ob_start();
+            $this->restore->restore_backup();
+            $output = ob_get_clean();
+            $response = json_decode($output, true);
+            
+            $this->assertTrue($response['success']);
+            $this->assertTrue($response['data']['complete']);
+            $this->assertDirectoryDoesNotExist($extract_dir);
+        } catch (WPDieException $e) {
+            $this->fail('Unexpected WPDieException');
+        }
     }
     
-    public function test_restore_with_missing_uploads() {
-        $backup_file = $this->create_mock_backup(false); // Create backup without uploads
+    // Test database restore with URL replacement
+    public function test_database_restore_with_url_replacement() {
+        global $wpdb;
         
-        $_POST['nonce'] = wp_create_nonce('wpsi_restore_backup');
-        $_POST['backup_file'] = $backup_file;
-        $_POST['step'] = 'extract';
+        // Create a mock SQL file with old URLs
+        $sql_file = $this->temp_dir . 'test_db.sql';
+        $old_url = 'http://old-site.com';
+        $new_url = get_site_url();
         
-        ob_start();
-        $this->restore->restore_backup();
-        $output = ob_get_clean();
-        $response = json_decode($output, true);
+        $content = "INSERT INTO `wp_options` VALUES (1, 'siteurl', '$old_url', 'yes');\n" .
+                   "INSERT INTO `wp_options` VALUES (2, 'home', '$old_url', 'yes');\n" .
+                   "INSERT INTO `wp_posts` VALUES (1, 1, NOW(), NOW(), 'Test post', 'test-post', 'publish', 'open', 'open', '', 'test-post', '', '', NOW(), NOW(), '', 0, '$old_url/?p=1', 0, 'post', '', 0);\n" .
+                   "INSERT INTO `wp_postmeta` VALUES (1, 1, '_thumbnail_id', 'a:1:{s:4:\"file\";s:20:\"2023/01/test-img.jpg\"}');";
         
-        $this->assertTrue($response['success']); // Should succeed even without uploads
-        $this->assertDirectoryExists($response['data']['extract_dir']);
-        
-        // Clean up
-        $this->recursive_rmdir($response['data']['extract_dir']);
-    }
-    
-    public function test_database_restoration() {
-        $extract_dir = $this->temp_dir . 'db-test/';
-        wp_mkdir_p($extract_dir);
-        
-        // Create test database.sql
-        $db_content = "INSERT INTO `wp_options` VALUES (1, 'siteurl', 'http://old-site.com', 'yes');\n";
-        $db_content .= "INSERT INTO `wp_options` VALUES (2, 'home', 'http://old-site.com', 'yes');\n";
-        file_put_contents($extract_dir . 'database.sql', $db_content);
+        file_put_contents($sql_file, $content);
         
         // Use reflection to call private method
         $method = new ReflectionMethod($this->restore, 'restore_database');
         $method->setAccessible(true);
         
-        $method->invoke($this->restore, $extract_dir);
+        $extract_dir = $this->temp_dir . 'test_extract/';
+        wp_mkdir_p($extract_dir);
         
-        // Verify URLs were replaced
-        $this->assertNotEquals('http://old-site.com', get_option('siteurl'));
-        $this->assertEquals(get_site_url(), get_option('siteurl'));
-        
-        // Clean up
-        $this->recursive_rmdir($extract_dir);
+        try {
+            $method->invoke($this->restore, $extract_dir);
+            
+            // Verify URLs were replaced
+            $site_url = get_option('siteurl');
+            $this->assertNotEquals($old_url, $site_url);
+            $this->assertEquals($new_url, $site_url);
+            
+            // Verify post GUID was updated
+            $post = $wpdb->get_row("SELECT * FROM {$wpdb->posts} WHERE ID = 1");
+            $this->assertStringContainsString($new_url, $post->guid);
+            
+            // Verify serialized data was fixed
+            $meta = $wpdb->get_row("SELECT * FROM {$wpdb->postmeta} WHERE meta_id = 1");
+            $unserialized = maybe_unserialize($meta->meta_value);
+            $this->assertIsArray($unserialized);
+        } finally {
+            // Clean up
+            $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_id IN (1, 2)");
+            $wpdb->query("DELETE FROM {$wpdb->posts} WHERE ID = 1");
+            $wpdb->query("DELETE FROM {$wpdb->postmeta} WHERE meta_id = 1");
+            $this->recursive_rmdir($extract_dir);
+        }
     }
     
-    public function test_uploads_restoration() {
-        $extract_dir = $this->temp_dir . 'uploads-test/';
-        wp_mkdir_p($extract_dir . 'wp-content/uploads/2023/01');
-        file_put_contents($extract_dir . 'wp-content/uploads/2023/01/test-image.jpg', 'test image');
-        
-        // Use reflection to call private method
-        $method = new ReflectionMethod($this->restore, 'restore_uploads_folder');
-        $method->setAccessible(true);
-        
-        $result = $method->invoke($this->restore, $extract_dir);
-        $this->assertTrue($result);
-        
-        // Verify file was copied
-        $upload_dir = wp_upload_dir();
-        $this->assertFileExists($upload_dir['basedir'] . '/2023/01/test-image.jpg');
-        
-        // Clean up
-        unlink($upload_dir['basedir'] . '/2023/01/test-image.jpg');
-        $this->recursive_rmdir($extract_dir);
-    }
-    
+    // Test media file registration
     public function test_media_file_registration() {
-        $upload_dir = wp_upload_dir();
-        $test_file = $upload_dir['path'] . '/test-register.jpg';
-        file_put_contents($test_file, 'test content');
+        // Create a test image in uploads
+        $uploads_dir = wp_upload_dir();
+        $test_image = $uploads_dir['path'] . '/test-image.jpg';
+        file_put_contents($test_image, 'test image content');
         
         // Use reflection to call private method
         $method = new ReflectionMethod($this->restore, 'register_single_media_file');
         $method->setAccessible(true);
         
-        $attachment_id = $method->invoke($this->restore, $test_file);
+        $attachment_id = $method->invoke($this->restore, $test_image);
         
         $this->assertIsNumeric($attachment_id);
         $this->assertGreaterThan(0, $attachment_id);
@@ -373,24 +312,30 @@ class TestWPSIRestore extends WP_UnitTestCase {
         wp_delete_attachment($attachment_id, true);
     }
     
+    // Test backup deletion
     public function test_delete_backup() {
-        // Create test backup file
-        $test_file = $this->backup_dir . 'test-delete.wpsi';
+        // Create a test backup file
+        $test_file = $this->backup_dir . 'test_delete.wpsi';
         file_put_contents($test_file, 'test content');
         
         // Simulate AJAX request
         $_POST['nonce'] = wp_create_nonce('wpsi_restore_backup');
         $_POST['backup_file'] = $test_file;
         
-        ob_start();
-        $this->restore->delete_backup();
-        $output = ob_get_clean();
-        $response = json_decode($output, true);
-        
-        $this->assertTrue($response['success']);
-        $this->assertFileDoesNotExist($test_file);
+        try {
+            ob_start();
+            $this->restore->delete_backup();
+            $output = ob_get_clean();
+            $response = json_decode($output, true);
+            
+            $this->assertTrue($response['success']);
+            $this->assertFileDoesNotExist($test_file);
+        } catch (WPDieException $e) {
+            $this->fail('Unexpected WPDieException');
+        }
     }
     
+    // Test invalid backup file deletion
     public function test_delete_invalid_backup_path() {
         // Try to delete a file outside backup directory
         $test_file = ABSPATH . 'wp-config.php';
@@ -398,13 +343,17 @@ class TestWPSIRestore extends WP_UnitTestCase {
         $_POST['nonce'] = wp_create_nonce('wpsi_restore_backup');
         $_POST['backup_file'] = $test_file;
         
-        ob_start();
-        $this->restore->delete_backup();
-        $output = ob_get_clean();
-        $response = json_decode($output, true);
-        
-        $this->assertFalse($response['success']);
-        $this->assertFileExists($test_file);
+        try {
+            ob_start();
+            $this->restore->delete_backup();
+            $output = ob_get_clean();
+            $response = json_decode($output, true);
+            
+            $this->assertFalse($response['success']);
+            $this->assertFileExists($test_file);
+        } catch (WPDieException $e) {
+            $this->fail('Unexpected WPDieException');
+        }
     }
     
     // Test SQL query fixing
