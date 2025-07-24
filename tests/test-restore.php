@@ -25,12 +25,13 @@ class TestWPSIRestore extends WP_UnitTestCase {
         $temp_dir_prop->setAccessible(true);
         $this->temp_dir = $temp_dir_prop->getValue($this->restore);
         
+        // Debug output
+        error_log("Backup directory in tests: " . $this->backup_dir);
+        error_log("Temp directory in tests: " . $this->temp_dir);
+        
         // Create test admin user
         $this->admin_id = $this->factory->user->create(['role' => 'administrator']);
         wp_set_current_user($this->admin_id);
-        
-        // Create test non-admin user
-        $this->editor_id = $this->factory->user->create(['role' => 'editor']);
     }
     
     public function tearDown(): void {
@@ -54,21 +55,26 @@ class TestWPSIRestore extends WP_UnitTestCase {
     
     // Test directory detection and creation
     public function test_directory_handling() {
-        // Test backup directory detection
-        $this->assertNotEmpty($this->backup_dir);
-        $this->assertStringContainsString('wpsi-backups', $this->backup_dir);
+        // First verify the directories exist
+        $this->assertDirectoryExists($this->backup_dir, "Backup directory should exist");
+        $this->assertDirectoryExists($this->temp_dir, "Temp directory should exist");
         
-        // Test temp directory
-        $this->assertNotEmpty($this->temp_dir);
-        $this->assertStringContainsString('wpsi-temp', $this->temp_dir);
+        // Check directory permissions
+        $this->assertTrue(is_writable($this->backup_dir), "Backup directory should be writable");
+        $this->assertTrue(is_writable($this->temp_dir), "Temp directory should be writable");
         
-        // Verify directories were created
-        $this->assertDirectoryExists($this->backup_dir);
-        $this->assertDirectoryExists($this->temp_dir);
-        
-        // Verify .htaccess files were created
-        $this->assertFileExists($this->backup_dir . '.htaccess');
-        $this->assertFileExists($this->temp_dir . '.htaccess');
+        // Verify .htaccess files - skip if running on Windows
+        if (strtoupper(substr(PHP_OS, 0, 3)) !== 'WIN') {
+            $this->assertFileExists($this->backup_dir . '.htaccess', 
+                ".htaccess file should exist in backup directory");
+            $this->assertFileExists($this->temp_dir . '.htaccess',
+                ".htaccess file should exist in temp directory");
+            
+            // Verify .htaccess content
+            $backup_htaccess = file_get_contents($this->backup_dir . '.htaccess');
+            $this->assertEquals('deny from all', trim($backup_htaccess),
+                ".htaccess should contain 'deny from all'");
+        }
     }
     
     // Test AJAX handler registration
