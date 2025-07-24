@@ -46,7 +46,3 @@ jobs:
       - name: Run PHPUnit tests
         id: phpunit
         run: vendor/bin/phpunit --verbose --testdox --colors=always
-
-      - name: Rerun failed tests with debug output
-        if: ${{ failure() && steps.phpunit.outcome == 'failure' }}
-        run: vendor/bin/phpunit --verbose --debug --colors=always --filter $(vendor/bin/phpunit --list-tests-xml | grep 'filter=' | sed -E 's/.*filter="([^"]+)".*/\1/')
