@@ -7,6 +7,6 @@ class WPSI_Email_Handler_Tests extends WP_UnitTestCase {
     }
 
     public function test_class_exists() {
-        $this->assertTrue(class_exists('WP_Site_Inspector_Email_Handler'));
+        $this->assertTrue(class_exists('some'));
     }
 } 
